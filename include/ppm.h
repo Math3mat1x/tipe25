@@ -17,4 +17,4 @@ Image* ppm_open(char* filename);
 Image* ppm_create(int width, int height);
 void   ppm_free(Image* im);
 int    ppm_save(Image* im, char* filename);
-Image* ppm_convolution(Image* im, int** kernel, int size);
+Image* ppm_convolution(Image* im, int* kernel, int size);

@@ -91,7 +91,7 @@ int ppm_save(Image* im, char* filename) {
 int min(int a, int b) { return a < b ? a : b;}
 int max(int a, int b) { return a > b ? a : b;}
   
-Image* ppm_convolution(Image* im, int** kernel, int size) {
+Image* ppm_convolution(Image* im, int* kernel, int size) {
     if (!im || !kernel || size <= 0 || size > im->width || size > im->height) {
         return NULL; // Invalid inputs
     }
@@ -110,9 +110,9 @@ Image* ppm_convolution(Image* im, int** kernel, int size) {
                     int img_x = x + i;
                     int img_y = y + j;
 
-                    sum_r += kernel[j][i] * im->p[img_y][img_x].r;
-                    sum_g += kernel[j][i] * im->p[img_y][img_x].g;
-                    sum_b += kernel[j][i] * im->p[img_y][img_x].b;
+                    sum_r += kernel[j * size + i] * im->p[img_y][img_x].r;
+                    sum_g += kernel[j * size + i] * im->p[img_y][img_x].g;
+                    sum_b += kernel[j * size + i] * im->p[img_y][img_x].b;
                 }
             }
 
