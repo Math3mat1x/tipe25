@@ -124,3 +124,18 @@ Image* ppm_convolution(Image* im, int* kernel, int size) {
 
     return result;
 }
+
+Image* grey_scale(Image* im) {
+  Image* res = ppm_create(im -> width, im -> height);
+
+  for (int j = 0; j < (im -> height); j++) {
+    for (int i = 0; i < (im -> width); i++) {
+      int mean = ((im -> p)[j][i].r + (im -> p)[j][i].g + (im -> p)[j][i].b) / 3;
+      (res -> p)[j][i].r = mean;
+      (res -> p)[j][i].g = mean;
+      (res -> p)[j][i].b = mean;
+    }
+  }
+
+  return res;
+}
