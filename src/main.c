@@ -3,7 +3,7 @@
 #include <assert.h>
 #include <math.h>
 
-#define PI 3.14159265358979323846
+#define PI 3.141592
 #define EPSILON 1E-6
 
 typedef struct ridge {
@@ -18,8 +18,12 @@ typedef struct fingerprint {
 } Fingerprint;
 
 float squared_average_gradient(Image* grad_x, Image* grad_y, int block_size, int x, int y, int* directions) {
-  // TODO: this fails with block_size = 1
-  assert(((x + block_size) < (grad_x->width)) && ((y + block_size) < (grad_y->height)));
+  // TODO : unsatisfactory with blocks_size > 1
+  // somehow applying 2 for instance online take the upper left corner of the image with similar 
+  // level of detail that with blocksize 1
+  if (!(((x + block_size) < (grad_x->width)) && ((y + block_size) < (grad_y->height)))) {
+    return EPSILON;
+  }
 
   float res = 0;
   for (int i = 0; i < block_size; i++) {
@@ -55,7 +59,8 @@ void ridge_valey_orientation(Image* grad_x, Image* grad_y, int block_size, int x
   float gxy = squared_average_gradient(grad_x, grad_y, block_size, x, y, dir2);
   float gyy = squared_average_gradient(grad_x, grad_y, block_size, x, y, dir3);
 
-  *angle = atan((gxx - gyy) /  (2 * gxy)) / 2; // TODO : check
+  *angle = atan((gxx - gyy) / (2 * gxy)) / 2; 
+  printf("%f ", *angle);
   *coherence = sqrt((gxx - gyy) * (gxx - gyy) + 4 * gxy * gxy) / (gxx + gyy);
 
   free(dir1);
@@ -63,7 +68,7 @@ void ridge_valey_orientation(Image* grad_x, Image* grad_y, int block_size, int x
   free(dir3);
 }
 
-Fingerprint* create_blank_fingerprint(int width, int height) {
+Fingerprint* create_fingerprint(int width, int height) {
   Fingerprint* res = malloc(sizeof(Fingerprint));
   res -> width = width;
   res -> height = height;
@@ -85,6 +90,25 @@ void free_fingerprint(Fingerprint* fp) {
   free(fp);
 }
 
+void normalize_coherence(Fingerprint* fp) {
+  float max = 0;
+  for (int i = 0; i < (fp -> width); i++) {
+    for (int j = 0; j < (fp -> height); j++) {
+      float tmp = (fp -> ridges)[j][i].coherence;
+      if (tmp > max) {
+        max = tmp;
+      }
+    }
+  }
+
+  for (int i = 0; i < (fp -> width); i++) {
+    for (int j = 0; j < (fp -> height); j++) {
+      float tmp = (fp -> ridges)[j][i].coherence;
+      (fp -> ridges)[j][i].coherence = tmp / max;
+    }
+  }
+}
+
 Fingerprint* compute_fingerprint(Image* im, int block_size) {
   // locksize : a divisor of gcd(width, height)
 
@@ -103,7 +127,7 @@ Fingerprint* compute_fingerprint(Image* im, int block_size) {
   // initialization of fingerprint
   int x = im -> width / block_size;
   int y = im -> height / block_size;
-  Fingerprint* fp = create_blank_fingerprint(x, y);
+  Fingerprint* fp = create_fingerprint(x, y);
 
   for (int i = 0; i < x; i++) {
     for (int j = 0; j < y; j++) {
@@ -116,19 +140,21 @@ Fingerprint* compute_fingerprint(Image* im, int block_size) {
   ppm_free(grad_x);
   ppm_free(grad_y);
 
+  normalize_coherence(fp);
+
   return fp;
 }
 
 void draw_svg(Fingerprint* fp, const char* filename) {
   int spacing = 20;
   SVG* svg = svg_init(filename, spacing * (fp -> width), spacing * (fp -> height));
-  int color = 0x000000;
 
   for (int i = 0; i < (fp -> width); i++) {
     for (int j = 0; j < (fp -> height); j++) {
+      int color_value = (int)round(fp->ridges[j][i].coherence * 255);
+      unsigned int color = (color_value << 16) | (color_value << 8) | color_value;
       float angle = (fp -> ridges)[j][i].angle;
-      printf("%f ", angle);
-      svg_line(svg, i * spacing, (j + 1) * spacing, (i + cos(angle)) * spacing, (j + 1 - sin(angle)) * spacing, 1, color);
+      svg_line(svg, i * spacing, (j + 1) * spacing, (i + cos(angle)) * spacing, (j + 1 - sin(angle)) * spacing, 10, color);
     }
   }
 
@@ -137,7 +163,8 @@ void draw_svg(Fingerprint* fp, const char* filename) {
 
 int main(int argc, char **argv) {
   Image* im = ppm_open(argv[1]);
-  Fingerprint* fp = compute_fingerprint(im, 16);
+  // TODO : gaussian windowing?
+  Fingerprint* fp = compute_fingerprint(im, 2);
   draw_svg(fp,"fingerprint.svg");
   return 0;
 }
