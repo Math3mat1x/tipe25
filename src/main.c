@@ -1,9 +1,13 @@
 #include "ppm.h"
+#include "csvg.h"
 #include <assert.h>
 #include <math.h>
 
+#define PI 3.14159265358979323846
+#define EPSILON 1E-6
+
 typedef struct ridge {
-  int angle;
+  float angle;
   int coherence;
 } Ridge;
 
@@ -14,6 +18,7 @@ typedef struct fingerprint {
 } Fingerprint;
 
 float squared_average_gradient(Image* grad_x, Image* grad_y, int block_size, int x, int y, int* directions) {
+  // TODO: this fails with block_size = 1
   assert(((x + block_size) < (grad_x->width)) && ((y + block_size) < (grad_y->height)));
 
   float res = 0;
@@ -35,10 +40,10 @@ float squared_average_gradient(Image* grad_x, Image* grad_y, int block_size, int
     }
   }
 
-  return res;
+  return res + EPSILON;
 }
 
-void ridge_valey_orientation(Image* grad_x, Image* grad_y, int block_size, int x, int y, int* directions, int* angle, int* coherence) {
+void ridge_valey_orientation(Image* grad_x, Image* grad_y, int block_size, int x, int y, float* angle, int* coherence) {
   int* dir1 = malloc(sizeof(int) * 3);
   int* dir2 = malloc(sizeof(int) * 3);
   int* dir3 = malloc(sizeof(int) * 3);
@@ -71,11 +76,19 @@ Fingerprint* create_blank_fingerprint(int width, int height) {
   return res;
 }
 
-int main(int argc, char **argv) {
-  /* Sobel kernels */
-  if (argc != 2) return 0;
+void free_fingerprint(Fingerprint* fp) {
 
-  Image* im = ppm_open(argv[1]);
+  for (int j = 0; j < (fp -> height); j++) {
+    free((fp -> ridges)[j]);
+  }
+  free(fp -> ridges);
+  free(fp);
+}
+
+Fingerprint* compute_fingerprint(Image* im, int block_size) {
+  // locksize : a divisor of gcd(width, height)
+
+  // compute the gradients using the sobel operator
   int* sobel_x = malloc(sizeof(int) * 9);
   int x_values[9] = {1, 0, -1, 2, 0, -2, 1, 0, -1};
   for (int i = 0; i < 9; i++) (sobel_x[i] = x_values[i]);
@@ -87,15 +100,44 @@ int main(int argc, char **argv) {
   Image* grad_x = ppm_convolution(im, sobel_x, 3);
   Image* grad_y = ppm_convolution(im, sobel_y, 3);
 
-  int* directions = malloc(sizeof(int) * 3);
-  directions[2] = 1;
-  float test = squared_average_gradient(grad_x, grad_y, 16, 500, 200, directions);
-  printf("Gxx en 0,0 : %f\n", test);
+  // initialization of fingerprint
+  int x = im -> width / block_size;
+  int y = im -> height / block_size;
+  Fingerprint* fp = create_blank_fingerprint(x, y);
+
+  for (int i = 0; i < x; i++) {
+    for (int j = 0; j < y; j++) {
+      ridge_valey_orientation(grad_x, grad_y, block_size, i, j, &((fp -> ridges)[j][i].angle), &((fp -> ridges)[j][i].coherence));
+    }
+  }
 
   free(sobel_x);
   free(sobel_y);
-  free(directions);
   ppm_free(grad_x);
   ppm_free(grad_y);
+
+  return fp;
+}
+
+void draw_svg(Fingerprint* fp, const char* filename) {
+  int spacing = 20;
+  SVG* svg = svg_init(filename, spacing * (fp -> width), spacing * (fp -> height));
+  int color = 0x000000;
+
+  for (int i = 0; i < (fp -> width); i++) {
+    for (int j = 0; j < (fp -> height); j++) {
+      float angle = (fp -> ridges)[j][i].angle;
+      printf("%f ", angle);
+      svg_line(svg, i * spacing, (j + 1) * spacing, (i + cos(angle)) * spacing, (j + 1 - sin(angle)) * spacing, 1, color);
+    }
+  }
+
+  svg_close(svg);
+}
+
+int main(int argc, char **argv) {
+  Image* im = ppm_open(argv[1]);
+  Fingerprint* fp = compute_fingerprint(im, 16);
+  draw_svg(fp,"fingerprint.svg");
   return 0;
 }
