@@ -1,0 +1,38 @@
+Titre de votre sujet de TIPE (20 mots)
+Extraction d’informations et traitement des empreintes digitales pour une correspondance précise et une gestion des déformations.
+
+Quelle est votre motivation pour le choix du sujet ? (20 mots)
+Passionné par l’authentification numérique, j’ai souhaité concevoir un système efficace sans dépendre de réseaux neuronaux opaques.
+
+En quoi votre étude s’inscrit-elle dans le thème de l’année ? (50 mots)
+Une image d'une empreinte digitale contient un certain nombres d’informations bruitées. Ainsi les étapes de débruitages et notamment de "minutiae extraction", puis la gestion des déformations non linéaires et enfin la comparaison avec de nouvelles empreintes s’inscrivent dans les thématiques de cette année.
+
+Bibliographie commentée. (650 mots)
+Une empreinte digitale, ou plus savamment un dactylogramme, est l’ensemble des plis de la peau d’un doigt projetté sur une surface. Il existe de nombreuses manières de capturer une empreinte digitale, notamment (et en particulier dans les mairies en France) par réflexion frustrée qui nécessite simplement une caméra, des lentilles, un prisme et une led [1]. Lors de mon étude, on se contentera simplement d’empreintes digitales disponibles sur internet et de scans.
+Une empreinte digitale est composée de crêtes et de sillons, espacés en moyenne de 30 micro-mètres. Les points d’intersections de ces crêtes, appelés "minuties", représentent une information capitale pour l’identification d’un individu. Cette information est utilisée par le FBI [2] pour identifier des criminels.
+Les méthodes d’acquisition sont toutes imparfaites et il est nécessaire de travailler avec des images réelles. Un problème majeur est l’apparition de déformations non-linéaires dûes notamment au positionnement du doigt sur le capteur. Des impuretés sur le doigt, comme de la transpiration ou de la poussière, ainsi que d’éventuelles coupures rendent la tâche d’extraction encore plus ardue. Cette étude est dans un premier temps axée sur la mitigation de ces problèmes.
+*   Premièrement, il est nécessaire de déterminer "la frequence locale d’apparitions de crêtes" afin d’adapter la taille des filtres utilisés dans les phases de prétraitement de l’image [3]. Pour ce faire, on demandera notamment à l’utilisateur de désigner une zone de l’image convenable.
+    Ensuite, il est nécessaire de déterminer une "champ d’orientation des crêtes". On admet alors une hypothèse sur l’image : le gradient le long des crêtes est faible, et est très élevé dans la direction orthogonale à ces derniers. On détermine alors la moyenne, sur un carré de pixels de taille dépendant de la première étape, du double de l’angle de l’orientation vers laquelle le changement est élevé. Cette méthode est rigoureusement équivalente à une analyse PCA et donc un algorithme peu coûteux permet de déterminer ce champ [4]. Cette technique permet également d’avoir accès à la probabilité qu’un carré de pixels soit situé sur une crête. On applique ensuite des filtres de Gabor pour isoler les "fréquences" souhaitées et ainsi supprimer le bruit résiduel.
+    Pour finaliser l’étape de prétraitement on applique un amincissement morphologique, de sorte à ce que les crêtes aient une épaisseur de un pixel [5].
+*   On utilise une méthode basée sur l’indice d’Euler et le théorème de Stokes pour déterminer la position des minuties [6].
+*   Après avoir considéré plusieurs scans d’un même doigt, on utilise une méthode d’alignement pour déterminer les minuties de référence [7]. On teste notamment toutes les paires de minuties possibles entre deux images : on centre les images sur ce point et on applique une rotation de sorte à ce que les deux minuties de références soient alignées. Lorsqu’une paire de minuties satisfaisante est trouvée, on représente les autres minuties dans un système de coordonées polaires. Cette étape éffectuée, on créé un modèle de l’empreinte en utilisant certaines heuristiques pour éliminer des minuties. Cette méthode permet un taux de succès de 99.4% [7].
+*   Finalement, on est prêt à enregistrer ces données dans un fichier et effectuer l’étape d’authentification pour des empreintes nouvelles. Pour ce faire, j’utiliserai ma propre méthode de classification utilisant l’algorithme des k plus proches voisins en exploitant des propriétés topologiques présentées dans un autre article [8].
+
+Problématique retenue. (50 mots)
+Comment exploiter efficacement des images d’empreintes digitales pour concevoir un système d’authentification robuste, précis et transparent, tout en évitant la complexité et l’opacité des modèles neuronaux, afin d’assurer une correspondance fiable entre empreintes dans des conditions de capture variées et face à des déformations ou à des bruitages éventuels ?
+
+Objectifs du TIPE. (100 mots)
+- Élaborer une méthode pour améliorer la qualité d’une image d’empreinte digitale ;
+- Développer un programme implémentant cette méthode ;
+- Développer un programme permettant d’extraires les minuties d’une empreinte et les stocker dans une structure de données adaptée en prenant compte les déformations non linéaires ;
+- Développer un programme d’authentification.
+
+Bibliographie :
+[1] Centrale MP Physique 2 (2019). Sujet de concours.
+[2] FBI. Publication à retrouver (informations manquantes).
+[3] Davide Maltoni, Dario Maio, Anil K. Jain, Salil Prabhakar (2009). Handbook of Fingerprint Recognition. DOI: 10.1007/978-1-84882-254-2.
+[4] Bazen, Asker & Gerez, Sabih (2000). “Directional field computation for fingerprints based on the principal component analysis of local gradients.” URL : https://www.researchgate.net/publication/228582993_Directional_field_computation_for_fingerprints_based_on_the_principal_component_analysis_of_local_gradients
+[5] Rafael Gonzalez, Richard Woods (2017). Digital Image Processing. Page 660.
+[6] A. M. Bazen, S. H. Gerez (2002). “Systematic methods for the computation of the directional fields and singular points of fingerprints.” IEEE Transactions on Pattern Analysis and Machine Intelligence, vol. 24, no. 7, pp. 905-919, juillet 2002. DOI: 10.1109/TPAMI.2002.1017618.
+[7] Xiping Luo, Jie Tian, Yan Wu (2000). “A minutiae matching algorithm in fingerprint verification.” Proceedings 15th International Conference on Pattern Recognition (ICPR-2000), Barcelone, Espagne, pp. 833-836, vol. 4. DOI: 10.1109/ICPR.2000.903046.
+[8] Xinjian Chen, Jie Tian, Xin Yang (2006). “A new algorithm for distorted fingerprints matching based on normalized fuzzy similarity measure.” IEEE Transactions on Image Processing, vol. 15, no. 3, pp. 767-776, mars 2006. DOI: 10.1109/TIP.2005.860597.
