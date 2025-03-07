@@ -8,7 +8,7 @@
 
 typedef struct ridge {
   float angle;
-  int coherence;
+  float coherence;
 } Ridge;
 
 typedef struct fingerprint {
@@ -47,7 +47,7 @@ float squared_average_gradient(Image* grad_x, Image* grad_y, int block_size, int
   return res + EPSILON;
 }
 
-void ridge_valey_orientation(Image* grad_x, Image* grad_y, int block_size, int x, int y, float* angle, int* coherence) {
+void ridge_valey_orientation(Image* grad_x, Image* grad_y, int block_size, int x, int y, float* angle, float* coherence) {
   int* dir1 = malloc(sizeof(int) * 3);
   int* dir2 = malloc(sizeof(int) * 3);
   int* dir3 = malloc(sizeof(int) * 3);
@@ -72,7 +72,7 @@ Fingerprint* create_fingerprint(int width, int height) {
   Fingerprint* res = malloc(sizeof(Fingerprint));
   res -> width = width;
   res -> height = height;
-  res -> ridges = malloc(sizeof(Ridge) * height);
+  res -> ridges = malloc(sizeof(Ridge*) * height);
 
   for (int j = 0; j < height; j++) {
     (res -> ridges)[j] = malloc(sizeof(Ridge) * width);
@@ -99,6 +99,11 @@ void normalize_coherence(Fingerprint* fp) {
         max = tmp;
       }
     }
+  }
+
+  // Prevent division by zero
+  if (fabs(max) < EPSILON) {
+    return;
   }
 
   for (int i = 0; i < (fp -> width); i++) {
