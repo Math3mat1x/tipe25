@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 
 typedef struct pixel {
   int r;
@@ -19,3 +20,4 @@ void   ppm_free(Image* im);
 int    ppm_save(Image* im, char* filename);
 Image* ppm_convolution(Image* im, int* kernel, int size);
 Image* grey_scale(Image* im);
+Image* ppm_normalize(Image* im);

@@ -81,7 +81,6 @@ void writeP6 (FILE *inFile, FILE *outFile){
 
 
   fh = fgets(buff, SIZE, inFile);           //Get the magic number first
-  printf("%s\n",buff );
   if ( (fh == NULL) || ( strncmp(buff, "P3\n", 3) != 0 ) ) perror("Please provide a P3 .ppm file for conversion\n");
   (void) fprintf(outFile, "P6\n");
 
@@ -90,7 +89,6 @@ void writeP6 (FILE *inFile, FILE *outFile){
         {
            fh = fgets(buff, SIZE, inFile);
            if( strncmp(buff, "#", 1) == 0) fprintf(outFile, "%s", buff);
-           printf("%s",buff);
            if ( fh == NULL ) return;
         } while ( strncmp(buff, "#", 1) == 0 );
 
