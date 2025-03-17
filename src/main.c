@@ -1,21 +1,12 @@
 #include "ppm.h"
 #include "csvg.h"
+#include "gabor.h"
 #include <assert.h>
 #include <math.h>
+#include <string.h>
 
 #define PI 3.141592
 #define EPSILON 1E-6
-
-typedef struct ridge {
-  float angle;
-  float coherence;
-} Ridge;
-
-typedef struct fingerprint {
-  int width;
-  int height;
-  Ridge** ridges;
-} Fingerprint;
 
 float squared_average_gradient(Image* grad_x, Image* grad_y, int block_size, int x, int y, int* directions) {
   // Check if the block would go out of bounds
@@ -131,7 +122,7 @@ void normalize_coherence(Fingerprint* fp) {
 }
 
 void generate_sobel_kernels(int size, int** sobel_x, int** sobel_y) {
-  // TODO : find a general formula
+  // TODO : find a general formula
   *sobel_x = malloc(sizeof(int) * size * size);
   *sobel_y = malloc(sizeof(int) * size * size);
   
@@ -184,135 +175,6 @@ void generate_sobel_kernels(int size, int** sobel_x, int** sobel_y) {
       (*sobel_x)[i] = x_values[i];
       (*sobel_y)[i] = y_values[i];
     }
-  }
-}
-
-// Calculate the ridge frequency in a local region
-// TESTED
-float calculate_local_ridge_frequency(Image* im, int x, int y, float orientation, int window_size) {
-  // Ensure the window fits within the image
-  if (x < window_size/2 || y < window_size/2 || 
-      x + window_size/2 >= im->width || y + window_size/2 >= im->height) {
-    return 0.0;
-  }
-  
-  float cos_theta = cos(orientation); // is orientation in gradients?
-  float sin_theta = sin(orientation);
-  
-  // Sample points perpendicular to ridge direction
-  int num_samples = window_size;
-  int* gray_levels = malloc(sizeof(int) * num_samples);
-  
-  // Center of the window
-  int center_x = x;
-  int center_y = y;
-  
-  // Sample along the perpendicular direction
-  for (int i = 0; i < num_samples; i++) {
-    // Calculate offset from center (-window_size/2 to +window_size/2)
-    float offset = i - window_size/2;
-    
-    // Note: perpendicular direction is (-sin_theta, cos_theta)
-    // direction is clockwise
-    int sample_x = (int)(center_x - offset * sin_theta);
-    int sample_y = (int)(center_y + offset * cos_theta);
-    
-    // Ensure the sample point is within the image
-    if (sample_x < 0) sample_x = 0;
-    if (sample_y < 0) sample_y = 0;
-    if (sample_x >= im->width) sample_x = im->width - 1;
-    if (sample_y >= im->height) sample_y = im->height - 1;
-    
-    // Get the gray level at the sample point (using red channel for grayscale)
-    gray_levels[i] = im->p[sample_y][sample_x].r;
-  }
-  
-  // Count the number of peaks (ridges) in the sampled data
-  int peak_count = 0;
-  for (int i = 1; i < num_samples - 1; i++) {
-    // A peak is where the value is higher than both neighbors
-    if (gray_levels[i] > gray_levels[i-1] && gray_levels[i] > gray_levels[i+1]) {
-      peak_count++;
-    }
-  }
-  
-  free(gray_levels);
-  
-  // Calculate frequency (peaks per pixel)
-  float frequency = 0.0;
-  if (peak_count > 0) {
-    frequency = (float)peak_count / window_size;
-  }
-  
-  return frequency;
-}
-
-int estimate_ridge_frequency(Image* im) {
-  int temp_block_size = 8;
-  
-  int* sobel_x;
-  int* sobel_y;
-  generate_sobel_kernels(3, &sobel_x, &sobel_y);
-  
-  // Apply convolution
-  Image* grad_x = ppm_convolution(im, sobel_x, 3);
-  Image* grad_y = ppm_convolution(im, sobel_y, 3);
-  
-  // Sample points across the image to estimate average frequency
-  int num_samples = 16;
-  float total_frequency = 0.0;
-  int valid_samples = 0;
-  
-  // Sample in a grid pattern
-  for (int i = 0; i < num_samples; i++) {
-    int x = im->width / num_samples * i + im->width / (2 * num_samples);
-    
-    for (int j = 0; j < num_samples; j++) {
-      int y = im->height / num_samples * j + im->height / (2 * num_samples);
-      
-      // Calculate local orientation
-      float angle, coherence;
-      // Use actual pixel coordinates instead of dividing by block_size
-      ridge_valey_orientation(grad_x, grad_y, temp_block_size, 
-                             x - temp_block_size/2, y - temp_block_size/2, 
-                             &angle, &coherence);
-      
-      // Only use points with high coherence (clear ridge pattern)
-      if (coherence > 0.5) {
-        // Calculate local frequency with a window size of 24 pixels
-        float freq = calculate_local_ridge_frequency(im, x, y, angle, 24);
-        
-        if (freq > 0.0) {
-          total_frequency += freq;
-          valid_samples++;
-        }
-      }
-    }
-  }
-  
-  // Clean up
-  free(sobel_x);
-  free(sobel_y);
-  ppm_free(grad_x);
-  ppm_free(grad_y);
-
-  float avg_frequency = 0.0;
-  if (valid_samples > 0) {
-    avg_frequency = total_frequency / valid_samples;
-  }
-
-  if ((valid_samples == 0) || (avg_frequency < 0.05)) {
-    return 3;
-  } else {
-      float avg_ridge_width = 1.0 / avg_frequency;
-
-      if (avg_ridge_width > 12) {
-        return 7; // Wide ridges - use 7x7 kernel
-      } else if (avg_ridge_width > 6) {
-        return 5; // Medium ridges - use 5x5 kernel
-      } else {
-        return 3; // Narrow ridges - use 3x3 kernel
-      }
   }
 }
 
@@ -377,12 +239,141 @@ void draw_svg(Fingerprint* fp, const char* filename) {
   svg_close(svg);
 }
 
+// Calculate local ridge frequency in a specific region
+float calculate_local_ridge_frequency(Image* im, int x, int y, float angle, int window_size) {
+  // Ensure window size is odd
+  if (window_size % 2 == 0) window_size++;
+  
+  // Half window size
+  int half_window = window_size / 2;
+  
+  // Make sure the window is within image bounds
+  if (x < half_window || y < half_window || 
+      x + half_window >= im->width || 
+      y + half_window >= im->height) {
+    return 0.0; // Return 0 for invalid regions
+  }
+  
+  // Create a projection along the direction perpendicular to ridge orientation
+  float* projection = malloc(sizeof(float) * window_size);
+  for (int i = 0; i < window_size; i++) {
+    projection[i] = 0.0;
+  }
+  
+  // Calculate the direction perpendicular to ridge orientation
+  float cos_angle = cos(angle + PI/2);
+  float sin_angle = sin(angle + PI/2);
+  
+  // Project the image along this direction
+  for (int i = -half_window; i <= half_window; i++) {
+    for (int j = -half_window; j <= half_window; j++) {
+      // Calculate the position in the projection
+      int proj_idx = (int)(i * cos_angle + j * sin_angle) + half_window;
+      
+      // Ensure the projection index is valid
+      if (proj_idx >= 0 && proj_idx < window_size) {
+        // Get the pixel value at (x+j, y+i)
+        int px = x + j;
+        int py = y + i;
+        
+        if (px >= 0 && px < im->width && py >= 0 && py < im->height) {
+          projection[proj_idx] += im->p[py][px].r;
+        }
+      }
+    }
+  }
+  
+  // Normalize the projection
+  float min_val = 255.0;
+  float max_val = 0.0;
+  for (int i = 0; i < window_size; i++) {
+    if (projection[i] < min_val) min_val = projection[i];
+    if (projection[i] > max_val) max_val = projection[i];
+  }
+  
+  if (max_val - min_val < EPSILON) {
+    free(projection);
+    return 0.0; // No variation in projection
+  }
+  
+  for (int i = 0; i < window_size; i++) {
+    projection[i] = (projection[i] - min_val) / (max_val - min_val);
+  }
+  
+  // Find peaks in the projection
+  int* peaks = malloc(sizeof(int) * window_size);
+  int peak_count = 0;
+  
+  for (int i = 1; i < window_size - 1; i++) {
+    if (projection[i] > projection[i-1] && projection[i] > projection[i+1] && projection[i] > 0.7) {
+      peaks[peak_count++] = i;
+    }
+  }
+  
+  // Calculate average distance between peaks
+  float avg_distance = 0.0;
+  if (peak_count >= 2) {
+    int total_distances = 0;
+    for (int i = 1; i < peak_count; i++) {
+      avg_distance += peaks[i] - peaks[i-1];
+      total_distances++;
+    }
+    
+    if (total_distances > 0) {
+      avg_distance /= total_distances;
+    } else {
+      avg_distance = 0.0;
+    }
+  }
+  
+  // Clean up
+  free(projection);
+  free(peaks);
+  
+  // Convert distance to frequency (cycles per pixel)
+  if (avg_distance > 2.0) { // Minimum reasonable ridge width
+    return 1.0 / avg_distance;
+  } else {
+    return 0.0; // Invalid frequency
+  }
+}
+
 int main(int argc, char **argv) {
+  if (argc < 2) {
+    printf("Usage: %s <input_image> [output_prefix]\n", argv[0]);
+    return 1;
+  }
+  
+  // Default output prefix
+  char* output_prefix = "fingerprint";
+  if (argc >= 3) {
+    output_prefix = argv[2];
+  }
+  
+  // Open the input image
   Image* im = ppm_open(argv[1]);
-  int block_size = estimate_ridge_frequency(im);
-  printf("Estimated frequency: %d.\n", block_size);
-  // TODO : gaussian windowing?
+  if (!im) {
+    printf("Error: Could not open image %s\n", argv[1]);
+    return 1;
+  }
+  
+  int block_size = 3;
+
+  // Compute fingerprint orientation field
   Fingerprint* fp = compute_fingerprint(im, block_size);
-  draw_svg(fp,"fingerprint.svg");
+  
+  // Create output filenames
+  char svg_filename[256];
+  snprintf(svg_filename, sizeof(svg_filename), "%s.svg", output_prefix);
+
+  // Draw orientation field as SVG
+  draw_svg(fp, svg_filename);
+  printf("Saved orientation field to %s\n", svg_filename);
+  
+  // Clean up
+  free_fingerprint(fp);
+  ppm_free(im);
+  
+  printf("Processing complete.\n");
   return 0;
 }

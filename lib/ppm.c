@@ -88,10 +88,9 @@ int ppm_save(Image* im, char* filename) {
     return 0; // Success
 }
 
-int min(int a, int b) { return a < b ? a : b;}
-int max(int a, int b) { return a > b ? a : b;}
-  
 Image* ppm_convolution(Image* im, int* kernel, int size) {
+    int min(int a, int b) { return a < b ? a : b;}
+
     if (!im || !kernel || size <= 0 || size > im->width || size > im->height) {
         return NULL; // Invalid inputs
     }
