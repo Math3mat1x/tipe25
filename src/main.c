@@ -10,6 +10,7 @@
 
 float squared_average_gradient(Image* grad_x, Image* grad_y, int block_size, int x, int y, int* directions) {
   // Check if the block would go out of bounds
+  // (x,y) represents the top left of the moving window
   if (((x + block_size) > (grad_x -> width)) || ((y + block_size) > (grad_y -> height))) {
     return EPSILON;
   }
@@ -33,46 +34,31 @@ float squared_average_gradient(Image* grad_x, Image* grad_y, int block_size, int
     }
   }
 
-  return res + EPSILON;
+  return res / (block_size * block_size + EPSILON);  // Corrected normalization
 }
 
+
 void ridge_valey_orientation(Image* grad_x, Image* grad_y, int block_size, int x, int y, float* angle, float* coherence) {
-  int* dir1 = malloc(sizeof(int) * 3);
-  int* dir2 = malloc(sizeof(int) * 3);
-  int* dir3 = malloc(sizeof(int) * 3);
-  dir1[0] = 1;
-  dir1[1] = 0;
-  dir1[2] = 0;
-  
-  dir2[0] = 0;
-  dir2[1] = 1;
-  dir2[2] = 0;
-  
-  dir3[0] = 0;
-  dir3[1] = 0;
-  dir3[2] = 1;
+  int dir1[3] = {1, 0, 0};
+  int dir2[3] = {0, 1, 0};
+  int dir3[3] = {0, 0, 1};
 
   float gxx = squared_average_gradient(grad_x, grad_y, block_size, x, y, dir1);
   float gxy = squared_average_gradient(grad_x, grad_y, block_size, x, y, dir2);
   float gyy = squared_average_gradient(grad_x, grad_y, block_size, x, y, dir3);
 
-  // Handle division by zero
-  if (fabs(gxy) < EPSILON) {
-    *angle = 0.0;
-  } else {
-    *angle = atan2((gxx - gyy), (2 * gxy)) / 2;
-  }
+  // Compute orientation angle
+  *angle = 0.5 * atan2(2.0 * gxy, gxx - gyy) + PI/2.0;
   
-  // Handle division by zero for coherence
-  if (fabs(gxx + gyy) < EPSILON) {
-    *coherence = 0.0;
+  // Compute coherence using the correct formula
+  float numerator = sqrt((gxx - gyy) * (gxx - gyy) + 4 * gxy * gxy);
+  float denominator = gxx + gyy;
+  
+  if (denominator > EPSILON) {
+    *coherence = numerator / denominator;
   } else {
-    *coherence = sqrt((gxx - gyy) * (gxx - gyy) + 4 * gxy * gxy) / (gxx + gyy);
+    *coherence = 0.0;
   }
-
-  free(dir1);
-  free(dir2);
-  free(dir3);
 }
 
 Fingerprint* create_fingerprint(int width, int height) {
@@ -178,6 +164,7 @@ void generate_sobel_kernels(int size, int** sobel_x, int** sobel_y) {
   }
 }
 
+
 Fingerprint* compute_fingerprint(Image* im, int block_size) {
   // Generate the appropriate Sobel kernels
   int* sobel_x;
@@ -188,9 +175,9 @@ Fingerprint* compute_fingerprint(Image* im, int block_size) {
   Image* grad_x = ppm_convolution(im, sobel_x, block_size);
   Image* grad_y = ppm_convolution(im, sobel_y, block_size);
 
-  // Calculate the number of blocks that fit in the image
-  int x_blocks = (im->width - block_size + 1) / block_size;
-  int y_blocks = (im->height - block_size + 1) / block_size;
+  // Calculate the number of blocks in the image dimensions
+  int x_blocks = im->width / block_size;
+  int y_blocks = im->height / block_size;
   
   // Ensure we have at least one block
   if (x_blocks < 1) x_blocks = 1;
@@ -206,18 +193,27 @@ Fingerprint* compute_fingerprint(Image* im, int block_size) {
       int block_x = i * block_size;
       int block_y = j * block_size;
       
-      // Calculate orientation for this block
-      ridge_valey_orientation(grad_x, grad_y, block_size, block_x, block_y, 
-                             &((fp->ridges)[j][i].angle), 
-                             &((fp->ridges)[j][i].coherence));
+      // Make sure the block is within bounds
+      if (block_x + block_size <= grad_x->width && block_y + block_size <= grad_y->height) {
+        // Calculate orientation for this block
+        ridge_valey_orientation(grad_x, grad_y, block_size, block_x, block_y, 
+                              &((fp->ridges)[j][i].angle), 
+                              &((fp->ridges)[j][i].coherence));
+      } else {
+        // Set default values for out-of-bounds blocks
+        (fp->ridges)[j][i].angle = 0.0;
+        (fp->ridges)[j][i].coherence = 0.0;
+      }
     }
   }
 
+  // Clean up resources
   free(sobel_x);
   free(sobel_y);
   ppm_free(grad_x);
   ppm_free(grad_y);
 
+  // Normalize the coherence values
   normalize_coherence(fp);
 
   return fp;
@@ -229,10 +225,24 @@ void draw_svg(Fingerprint* fp, const char* filename) {
 
   for (int i = 0; i < (fp -> width); i++) {
     for (int j = 0; j < (fp -> height); j++) {
-      int color_value = (int)round(fp->ridges[j][i].coherence * 255);
+      float coherence = (fp -> ridges)[j][i].coherence;
+      if (coherence < 0.2) continue;  // Skip low coherence blocks
+      
+      int color_value = (int)round(coherence * 255);
       unsigned int color = (color_value << 16) | (color_value << 8) | color_value;
+      
       float angle = (fp -> ridges)[j][i].angle;
-      svg_line(svg, i * spacing, (j + 1) * spacing, (i + cos(angle)) * spacing, (j + 1 - sin(angle)) * spacing, 10, color);
+      // Draw line centered at block center
+      int center_x = i * spacing + spacing/2;
+      int center_y = j * spacing + spacing/2;
+      int line_length = spacing/2;
+      
+      svg_line(svg, 
+               center_x - line_length * cos(angle),
+               center_y - line_length * sin(angle),
+               center_x + line_length * cos(angle),
+               center_y + line_length * sin(angle),
+               2, color);
     }
   }
 
