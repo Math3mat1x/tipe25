@@ -226,12 +226,12 @@ void draw_svg(Fingerprint* fp, const char* filename) {
   for (int i = 0; i < (fp -> width); i++) {
     for (int j = 0; j < (fp -> height); j++) {
       float coherence = (fp -> ridges)[j][i].coherence;
-      if (coherence < 0.2) continue;  // Skip low coherence blocks
+      //if (coherence < 0.2) continue;  // Skip low coherence blocks
       
       int color_value = (int)round(coherence * 255);
       unsigned int color = (color_value << 16) | (color_value << 8) | color_value;
       
-      float angle = (fp -> ridges)[j][i].angle;
+      float angle = (fp -> ridges)[j][i].angle + M_PI / 2.;
       // Draw line centered at block center
       int center_x = i * spacing + spacing/2;
       int center_y = j * spacing + spacing/2;
@@ -348,6 +348,105 @@ float calculate_local_ridge_frequency(Image* im, int x, int y, float angle, int 
   }
 }
 
+void print_fingerprint_angles(Fingerprint* fp) {
+  printf("Fingerprint angles (degrees ):\n");
+  for (int i = 0; i < fp->height; i++) {
+    for (int j = 0; j < fp->width; j++) {
+      // Convert radians to degrees: degrees = radians * 180 / PI
+      float angle_degrees = (fp->ridges)[i][j].angle * 180 / M_PI;
+      printf("%03d ", (int)round(angle_degrees));
+    }
+    printf("\n");
+  }
+}
+
+// Convolution function for fingerprint images using a float kernel.
+// f: pointer to the input fingerprint image.
+// kernel: pointer to a 1D float array representing the kernel (row-major order).
+// block_size: the width and height of the (square) kernel.
+Fingerprint* fp_convolution(Fingerprint* f, float* kernel, int block_size) {
+    if (!f || !kernel || block_size <= 0 || block_size > f->width || block_size > f->height) {
+        return NULL; // Invalid inputs
+    }
+    
+    int new_width = f->width - block_size + 1;
+    int new_height = f->height - block_size + 1;
+    
+    // Create new fingerprint image of the resulting dimensions.
+    Fingerprint* result = create_fingerprint(new_width, new_height);
+    if (!result) {
+        fprintf(stderr, "Unable to allocate fingerprint image for convolution result.\n");
+        return NULL;
+    }
+    
+    for (int y = 0; y < new_height; y++) {
+        for (int x = 0; x < new_width; x++) {
+            float sum_angle = 0.0f;
+            float sum_coherence = 0.0f;
+            // Convolve the kernel over the image window.
+            for (int j = 0; j < block_size; j++) {
+                for (int i = 0; i < block_size; i++) {
+                    int img_x = x + i;
+                    int img_y = y + j;
+                    sum_angle += kernel[j * block_size + i] * f->ridges[img_y][img_x].angle;
+                    sum_coherence += kernel[j * block_size + i] * f->ridges[img_y][img_x].coherence;
+                }
+            }
+            // Round and clamp the values to 0-255.
+            int conv_val_angle = (int)round(sum_angle);
+            if (conv_val_angle < 0) conv_val_angle = 0;
+            if (conv_val_angle > 255) conv_val_angle = 255;
+            
+            int conv_val_coh = (int)round(sum_coherence);
+            if (conv_val_coh < 0) conv_val_coh = 0;
+            if (conv_val_coh > 255) conv_val_coh = 255;
+            
+            result->ridges[y][x].angle = conv_val_angle;
+            result->ridges[y][x].coherence = conv_val_coh;
+        }
+    }
+    
+    return result;
+}
+
+// Apply a Gabor filter on the fingerprint image.
+// fingerprint: pointer to the input fingerprint image.
+// blocksize: the size of the (square) block/kernel to use for the Gabor filter.
+Fingerprint* apply_gabor_filter(Fingerprint* fingerprint, int blocksize) {
+    if (!fingerprint) {
+        return NULL;
+    }
+    
+    // --- Define your Gabor parameters. ---
+    // For a more adaptive solution you would compute these from the fingerprint's ridge information.
+    float angle     = PI / 4.0f;   // Example: 45 degrees in radians.
+    float frequency = 0.1f;        // Example: cycles per pixel.
+    float sigma_x   = 3.0f;
+    float sigma_y   = 3.0f;
+    
+    // --- Create the Gabor kernel as a 2D float array ---
+    float** gabor_kernel_2d = create_gabor_kernel(blocksize, angle, frequency, sigma_x, sigma_y);
+    if (!gabor_kernel_2d) {
+        fprintf(stderr, "Failed to create Gabor kernel.\n");
+        return NULL;
+    }
+    
+    // --- Convert the 2D kernel to a 1D array in row-major order ---
+    float* kernel_1d = malloc(sizeof(float) * blocksize * blocksize);
+    
+    for (int y = 0; y < blocksize; y++) {
+        for (int x = 0; x < blocksize; x++) {
+            kernel_1d[y * blocksize + x] = gabor_kernel_2d[y][x];
+        }
+    }
+    
+    // --- Apply convolution using the Gabor kernel ---
+    Fingerprint* filtered = fp_convolution(fingerprint, kernel_1d, blocksize);
+    
+    free(kernel_1d);
+    return filtered;
+}
+
 int main(int argc, char **argv) {
   if (argc < 2) {
     printf("Usage: %s <input_image> [output_prefix]\n", argv[0]);
@@ -371,6 +470,8 @@ int main(int argc, char **argv) {
 
   // Compute fingerprint orientation field
   Fingerprint* fp = compute_fingerprint(im, block_size);
+  fp = apply_gabor_filter(fp, 3);
+  print_fingerprint_angles(fp);
   
   // Create output filenames
   char svg_filename[256];

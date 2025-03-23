@@ -1,5 +1,5 @@
-#include "../include/gabor.h"
-#include "../include/ppm.h"
+#include "gabor.h"
+#include "ppm.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
